@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import json
+import sys
 import urllib.request
 
 import pulp
@@ -18,6 +19,13 @@ URL_RAWMATS = URL_DIR_ASSISTANT_RAW + "RawMaterials.lang.json"
 URL_PRODUCTS = URL_DIR_ASSISTANT_RAW + "Products.lang.json"
 URL_CURIOSITY = URL_DIR_ASSISTANT_RAW + "Curiosity.lang.json"
 URL_COOKING = URL_DIR_ASSISTANT_RAW + "Cooking.lang.json"
+
+
+# Terminal colors
+
+RESET_COLOR = "\033[0m"
+INPUT_COLOR = "\033[36m"  # cyan
+OUTPUT_COLOR = "\033[32m"  # green
 
 
 # Configuration
@@ -131,21 +139,29 @@ def main():
 
     total_time = sum(r["time_s"] * (x[r["id"]].value() or 0) for r in recipes)
     chosen_recipes = []
+
+    def fmt_item(iid, qty, color):
+        name = items.get(iid, {"name": iid})["name"]
+        if sys.stdout.isatty():
+            return f"{qty:.0f} {color}{name}{RESET_COLOR}"
+        else:
+            return f"{qty:.0f} {name}"
+
     for r in recipes:
         xr = x[r["id"]].value() or 0
         if xr > 1e-9:
-            out_name = items.get(r["output"][0], {"name": r["output"][0]})["name"]
-            chosen_recipes.append(
-                (r["id"], out_name, xr, r["time_s"] * xr, profit_per_run[r["id"]] * xr)
-            )
+            time = r["time_s"] * xr
+            profit = profit_per_run[r["id"]] * xr
+            rstr = " + ".join(fmt_item(iid, q, INPUT_COLOR) for iid, q in r["inputs"])
+            rstr += " -> " + fmt_item(r["output"][0], r["output"][1], OUTPUT_COLOR)
+            chosen_recipes.append((r["id"], xr, time, profit, rstr))
 
-    print(f"Parsed {len(items)} items and {len(recipes)} recipes")
     print("Status:", pulp.LpStatus[prob.status])
     print(f"Total profit: {pulp.value(prob.objective):.2f}")
     print(f"Crafting time: {total_time/60.0:.2f} min")
     print("Chosen recipes:")
-    for rid, oname, xr, t, p in sorted(chosen_recipes, key=lambda t: -t[4]):
-        print(f" - {rid}: runs={xr:.2f}, time={t:.1f}s, profit={p:.1f} -> {oname}")
+    for rid, xr, t, p, rstr in sorted(chosen_recipes, key=lambda t: -t[3]):
+        print(f"  {rid}: runs={xr:.2f}, time={t:.1f}s, profit={p:.1f}\n    {rstr}")
 
 
 if __name__ == "__main__":
