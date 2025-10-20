@@ -32,14 +32,17 @@ OUTPUT_COLOR = "\033[32m"  # green
 
 # Configuration
 
+BIG_M_CRAFTING_TIME = 60 * 60 * 10.0  # 10 hours
 MAX_CRAFTING_TIME = 60 * 30.0
 SWITCHING_PENALTY = 40.0
 
+# Starting amounts of each item (by ID or name); negative values indicate desire
 initial_stock = {
     "oxygen": 500,
-    "carbon": 500,
+    "carbon": -500,
 }
 
+# Recipes to ignore (by ID, output ID, or output name)
 ignored_recipes = [
     "warp cell",
 ]
@@ -158,31 +161,44 @@ def main():
     print(f"Parsed {len(items)} items and {len(recipes)} recipes")
 
     # Create LP problem and variables representing recipe runs
-    prob = pulp.LpProblem("nms_max_units", pulp.LpMaximize)
+    if max_crafting_time <= 0:
+        prob = pulp.LpProblem("nms_min_time", pulp.LpMinimize)
+    else:
+        prob = pulp.LpProblem("nms_max_units", pulp.LpMaximize)
     cat = pulp.LpInteger if args.integer else pulp.LpContinuous
     x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0, cat=cat)
+    b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
 
     if switching_penalty > 0:
-        b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
-
         # Track which recipes have nonzero usage counts
         for r in recipes:
-            prob += r["time_s"] * x[r["id"]] <= max_crafting_time * b[r["id"]]
+            prob += r["time_s"] * x[r["id"]] <= BIG_M_CRAFTING_TIME * b[r["id"]]
 
-        # Time constraint: crafting time and penalty must not exceed the time budget
-        prob += (
-            pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
-            + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
-            <= max_crafting_time
-        )
+    # Time constraint: crafting time (and penalty) must not exceed the time budget
+    if max_crafting_time > 0:
+        if switching_penalty > 0:
+            prob += (
+                pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
+                + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
+                <= max_crafting_time
+            )
+        else:
+            prob += (
+                pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
+                <= max_crafting_time
+            )
+
+        # Objective: maximize total units value produced (profit)
+        prob += pulp.lpSum(profit_per_run[r["id"]] * x[r["id"]] for r in recipes)
+
     else:
-        # Time constraint: total crafting time must not exceed the time budget
-        prob += (
-            pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes) <= max_crafting_time
-        )
-
-    # Objective: maximize total units value produced
-    prob += pulp.lpSum(profit_per_run[r["id"]] * x[r["id"]] for r in recipes)
+        # Objective: minimize total crafting time (ignore profit)
+        if switching_penalty > 0:
+            prob += pulp.lpSum(
+                r["time_s"] * x[r["id"]] for r in recipes
+            ) + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
+        else:
+            prob += pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
 
     # Item stock nonnegativity constraints
     item_expr = {}
@@ -197,6 +213,9 @@ def main():
     prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
     total_time = sum(r["time_s"] * (x[r["id"]].value() or 0) for r in recipes)
+    total_profit = sum(
+        profit_per_run[r["id"]] * (x[r["id"]].value() or 0) for r in recipes
+    )
     chosen_recipes = []
 
     def fmt_item(iid, qty, color):
@@ -216,7 +235,7 @@ def main():
             chosen_recipes.append((r["id"], xr, time, profit, rstr))
 
     print("Status:", pulp.LpStatus[prob.status])
-    print(f"Total profit: {pulp.value(prob.objective):.2f}")
+    print(f"Total profit: {total_profit:.2f}")
     print(f"Crafting time: {total_time/60.0:.2f} min")
     print("Chosen recipes:")
     for rid, xr, t, p, rstr in sorted(chosen_recipes, key=lambda t: -t[3]):
