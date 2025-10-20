@@ -161,18 +161,25 @@ def main():
     prob = pulp.LpProblem("nms_max_units", pulp.LpMaximize)
     cat = pulp.LpInteger if args.integer else pulp.LpContinuous
     x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0, cat=cat)
-    b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
 
-    # Track which recipes have nonzero usage counts
-    for r in recipes:
-        prob += r["time_s"] * x[r["id"]] <= max_crafting_time * b[r["id"]]
+    if switching_penalty > 0:
+        b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
 
-    # Time constraint: total crafting time must not exceed the time budget
-    prob += (
-        pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
-        + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
-        <= max_crafting_time
-    )
+        # Track which recipes have nonzero usage counts
+        for r in recipes:
+            prob += r["time_s"] * x[r["id"]] <= max_crafting_time * b[r["id"]]
+
+        # Time constraint: crafting time and penalty must not exceed the time budget
+        prob += (
+            pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
+            + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
+            <= max_crafting_time
+        )
+    else:
+        # Time constraint: total crafting time must not exceed the time budget
+        prob += (
+            pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes) <= max_crafting_time
+        )
 
     # Objective: maximize total units value produced
     prob += pulp.lpSum(profit_per_run[r["id"]] * x[r["id"]] for r in recipes)
