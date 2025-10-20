@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 import argparse
+from collections import defaultdict
 import json
 import sys
 import urllib.request
@@ -34,7 +35,10 @@ OUTPUT_COLOR = "\033[32m"  # green
 MAX_CRAFTING_TIME = 60 * 30.0
 SWITCHING_PENALTY = 40.0
 
-initial_stock = {}
+initial_stock = {
+    "oxygen": 500,
+    "carbon": 500,
+}
 
 
 def fetch(url):
@@ -119,6 +123,12 @@ def main():
     cook = fetch(URL_COOKING)
 
     items = index_items([raw, prod, cur, cook])
+    name_to_id = {v["name"].lower(): k for k, v in items.items()}
+
+    # Normalize initial stock to use item IDs (if not already provided)
+    s0 = defaultdict(float)
+    for k, v in initial_stock.items():
+        s0[name_to_id.get(k.lower(), k)] += v
 
     recipes = (
         parse_machine_recipes(ref)
@@ -165,7 +175,7 @@ def main():
         out_id, out_q = r["output"]
         item_expr[out_id] = item_expr.get(out_id, 0) + out_q * x[r["id"]]
     for iid, expr in item_expr.items():
-        prob += initial_stock.get(iid, 0) + expr >= 0
+        prob += s0.get(iid, 0) + expr >= 0
 
     prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
