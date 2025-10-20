@@ -40,6 +40,10 @@ initial_stock = {
     "carbon": 500,
 }
 
+ignored_recipes = [
+    "warp cell",
+]
+
 
 def fetch(url):
     with urllib.request.urlopen(url) as r:
@@ -138,6 +142,12 @@ def main():
         + parse_crafting_recipes(cur)
         + parse_crafting_recipes(cook)
     )
+
+    # Filter recipes by ID, output ID, or output name
+    ignored = set(name_to_id.get(k.lower(), k) for k in ignored_recipes)
+    recipes = [
+        r for r in recipes if r["id"] not in ignored and r["output"][0] not in ignored
+    ]
 
     profit_per_run = {
         r["id"]: r["output"][1] * items.get(r["output"][0], {"value": 0.0})["value"]
