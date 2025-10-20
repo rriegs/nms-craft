@@ -101,6 +101,12 @@ def main():
         default=SWITCHING_PENALTY,
         help=f"per-recipe switching penalty in seconds (default: {SWITCHING_PENALTY})",
     )
+    parser.add_argument(
+        "-i",
+        "--integer",
+        action="store_true",
+        help="ensure recipe run counts are integers",
+    )
     args = parser.parse_args()
     max_crafting_time = args.budget * 60
     switching_penalty = args.penalty
@@ -133,7 +139,8 @@ def main():
 
     # Create LP problem and variables representing recipe runs
     prob = pulp.LpProblem("nms_max_units", pulp.LpMaximize)
-    x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0)
+    cat = pulp.LpInteger if args.integer else pulp.LpContinuous
+    x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0, cat=cat)
     b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
 
     # Track which recipes have nonzero usage counts
@@ -186,7 +193,8 @@ def main():
     print(f"Crafting time: {total_time/60.0:.2f} min")
     print("Chosen recipes:")
     for rid, xr, t, p, rstr in sorted(chosen_recipes, key=lambda t: -t[3]):
-        print(f"  {rid}: runs={xr:.2f}, time={t:.1f}s, profit={p:.1f}\n    {rstr}")
+        runs = f"{xr:.0f}" if args.integer else f"{xr:.2f}"
+        print(f"  {rid}: runs={runs}, time={t:.1f}s, profit={p:.1f}\n    {rstr}")
 
 
 if __name__ == "__main__":
