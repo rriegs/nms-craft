@@ -1,0 +1,85 @@
+# IDEs: VS Code, JetBrains, Sublime Text
+.vscode/
+.history/
+*.code-workspace
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Editors: Vim, Emacs
+*~
+*.swp
+*.swo
+*.un~
+*.bak
+*.tmp
+*.temp
+*.orig
+*#
+.#*
+*.elc
+Session.vim
+
+# OS-generated files: macOS, Windows, Linux
+.DS_Store
+.AppleDouble
+.LSOverride
+.Trashes
+*.Trash-*
+Thumbs.db
+ehthumbs.db
+Icon?
+Desktop.ini
+
+# Logs and miscellaneous
+logs/
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Environment and Configuration
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Testing and coverage
+.pytest_cache/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+
+# Type checking
+.mypy_cache/
+.pytype/
+
+# Linting
+.ruff_cache/
+
+# Documentation: mkdocs
+site/
+
+# Build and Distribution
+build/
+dist/
+*.egg-info/
+*.egg
+*.whl
+*.deb
+*.rpm
