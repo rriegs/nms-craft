@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import argparse
 import json
 import sys
 import urllib.request
@@ -80,6 +81,30 @@ def parse_crafting_recipes(src):
 
 
 def main():
+    # Parse command-line options to override configuration
+    parser = argparse.ArgumentParser(
+        description="Optimize crafting for maximum profit within a time budget"
+    )
+    parser.add_argument(
+        "-b",
+        "--budget",
+        metavar="MINUTES",
+        type=float,
+        default=MAX_CRAFTING_TIME / 60,
+        help=f"maximum crafting time in minutes (default: {MAX_CRAFTING_TIME/60})",
+    )
+    parser.add_argument(
+        "-p",
+        "--penalty",
+        metavar="AMOUNT",
+        type=float,
+        default=SWITCHING_PENALTY,
+        help=f"per-recipe switching penalty in seconds (default: {SWITCHING_PENALTY})",
+    )
+    args = parser.parse_args()
+    max_crafting_time = args.budget * 60
+    switching_penalty = args.penalty
+
     ref = fetch(URL_REFINERY)
     nut = fetch(URL_NUTRIENT)
     raw = fetch(URL_RAWMATS)
@@ -113,13 +138,13 @@ def main():
 
     # Track which recipes have nonzero usage counts
     for r in recipes:
-        prob += r["time_s"] * x[r["id"]] <= MAX_CRAFTING_TIME * b[r["id"]]
+        prob += r["time_s"] * x[r["id"]] <= max_crafting_time * b[r["id"]]
 
     # Time constraint: total crafting time must not exceed the time budget
     prob += (
         pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
-        + SWITCHING_PENALTY * pulp.lpSum(b[r["id"]] for r in recipes)
-        <= MAX_CRAFTING_TIME
+        + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
+        <= max_crafting_time
     )
 
     # Objective: maximize total units value produced
