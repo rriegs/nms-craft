@@ -23,6 +23,7 @@ URL_COOKING = URL_DIR_ASSISTANT_RAW + "Cooking.lang.json"
 # Configuration
 
 MAX_CRAFTING_TIME = 60 * 30.0
+SWITCHING_PENALTY = 40.0
 
 initial_stock = {}
 
@@ -100,9 +101,18 @@ def main():
     # Create LP problem and variables representing recipe runs
     prob = pulp.LpProblem("nms_max_units", pulp.LpMaximize)
     x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0)
+    b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
+
+    # Track which recipes have nonzero usage counts
+    for r in recipes:
+        prob += r["time_s"] * x[r["id"]] <= MAX_CRAFTING_TIME * b[r["id"]]
 
     # Time constraint: total crafting time must not exceed the time budget
-    prob += pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes) <= MAX_CRAFTING_TIME
+    prob += (
+        pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
+        + SWITCHING_PENALTY * pulp.lpSum(b[r["id"]] for r in recipes)
+        <= MAX_CRAFTING_TIME
+    )
 
     # Objective: maximize total units value produced
     prob += pulp.lpSum(profit_per_run[r["id"]] * x[r["id"]] for r in recipes)
