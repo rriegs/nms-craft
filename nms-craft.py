@@ -60,6 +60,7 @@ def index_items(sources):
             "value": (
                 float(it["BaseValueUnits"]) if it["CurrencyType"] == "Credits" else 0.0
             ),
+            "stack_size": float(it.get("MaxStackSize", 1.0)),
         }
         for src in sources
         for it in src
@@ -118,6 +119,12 @@ def main():
         action="store_true",
         help="ensure recipe run counts are integers",
     )
+    parser.add_argument(
+        "-m",
+        "--minimize",
+        action="store_true",
+        help="report minimal stocks needed to craft desired items",
+    )
     args = parser.parse_args()
     max_crafting_time = args.budget * 60
     switching_penalty = args.penalty
@@ -161,21 +168,26 @@ def main():
     print(f"Parsed {len(items)} items and {len(recipes)} recipes")
 
     # Create LP problem and variables representing recipe runs
-    if max_crafting_time <= 0:
+    if args.minimize:
+        prob = pulp.LpProblem("nms_min_stock", pulp.LpMinimize)
+    elif max_crafting_time <= 0:
         prob = pulp.LpProblem("nms_min_time", pulp.LpMinimize)
     else:
         prob = pulp.LpProblem("nms_max_units", pulp.LpMaximize)
     cat = pulp.LpInteger if args.integer else pulp.LpContinuous
     x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0, cat=cat)
     b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
+    m = pulp.LpVariable.dicts(
+        "m", [iid for iid in items], lowBound=0, cat=pulp.LpInteger
+    )
 
     if switching_penalty > 0:
         # Track which recipes have nonzero usage counts
         for r in recipes:
             prob += r["time_s"] * x[r["id"]] <= BIG_M_CRAFTING_TIME * b[r["id"]]
 
-    # Time constraint: crafting time (and penalty) must not exceed the time budget
     if max_crafting_time > 0:
+        # Time constraint: crafting time (and penalty) must not exceed the time budget
         if switching_penalty > 0:
             prob += (
                 pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
@@ -188,17 +200,23 @@ def main():
                 <= max_crafting_time
             )
 
+    if args.minimize:
+        # Objective: minimize total extra stock needed
+        prob += pulp.lpSum(m[iid] for iid in items)
+
+    elif max_crafting_time > 0:
         # Objective: maximize total units value produced (profit)
         prob += pulp.lpSum(profit_per_run[r["id"]] * x[r["id"]] for r in recipes)
 
+    elif switching_penalty > 0:
+        # Objective: minimize total crafting time and penalties (ignore profit)
+        prob += pulp.lpSum(
+            r["time_s"] * x[r["id"]] for r in recipes
+        ) + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
+
     else:
-        # Objective: minimize total crafting time (ignore profit)
-        if switching_penalty > 0:
-            prob += pulp.lpSum(
-                r["time_s"] * x[r["id"]] for r in recipes
-            ) + switching_penalty * pulp.lpSum(b[r["id"]] for r in recipes)
-        else:
-            prob += pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
+        # Objective: just minimize total crafting time
+        prob += pulp.lpSum(r["time_s"] * x[r["id"]] for r in recipes)
 
     # Item stock nonnegativity constraints
     item_expr = {}
@@ -207,8 +225,13 @@ def main():
             item_expr[iid] = item_expr.get(iid, 0) - q * x[r["id"]]
         out_id, out_q = r["output"]
         item_expr[out_id] = item_expr.get(out_id, 0) + out_q * x[r["id"]]
-    for iid, expr in item_expr.items():
-        prob += s0.get(iid, 0) + expr >= 0
+    if args.minimize:
+        for iid, expr in item_expr.items():
+            stack_size = items.get(iid, {"stack_size": 1.0})["stack_size"]
+            prob += s0.get(iid, 0) + expr + stack_size * m.get(iid, 0) >= 0
+    else:
+        for iid, expr in item_expr.items():
+            prob += s0.get(iid, 0) + expr >= 0
 
     prob.solve(pulp.PULP_CBC_CMD(msg=False))
 
@@ -241,6 +264,12 @@ def main():
     for rid, xr, t, p, rstr in sorted(chosen_recipes, key=lambda t: -t[3]):
         runs = f"{xr:.0f}" if args.integer else f"{xr:.2f}"
         print(f"  {rid}: runs={runs}, time={t:.1f}s, profit={p:.1f}\n    {rstr}")
+    if args.minimize:
+        print("Additional stock needed:")
+        for iid in items:
+            mi = m[iid].value() or 0
+            if mi > 1e-9:
+                print(f"  {fmt_item(iid, items[iid]["stack_size"] * mi, OUTPUT_COLOR)}")
 
 
 if __name__ == "__main__":
