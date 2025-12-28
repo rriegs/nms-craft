@@ -38,8 +38,59 @@ SWITCHING_PENALTY = 40.0
 
 # Starting amounts of each item (by ID or name); negative values indicate desire
 initial_stock = {
-    "oxygen": 500,
-    "carbon": -500,
+    "activated cadmium": 1053,
+    "activated copper": 36,
+    "activated indium": 1213,
+    "atlanteum": 848,
+    "cactus flesh": 2385,
+    "cadmium": 237,
+    "carbon": 9999,
+    "cobalt": 72,
+    "copper": 1439,
+    "di-hydrogen": 423,
+    "dioxide": 380,
+    "emeril": 561,
+    "ferrite dust": 9307,
+    "frost crystal": 3455,
+    "fungal mould": 464,
+    "gold": 928 + 9999,
+    "indium": 3405,
+    "nitrogen": 1322,
+    "oxygen": 9999,
+    "parafinium": 30,
+    "pugneum": 9949,
+    "radon": 2083,
+    "silicate powder": 283,
+    "sodium": 2649,
+    "sodium nitrate": 1440,
+    "tritium": 4075,
+    "uranium": 2046,
+    "aloe flesh": 82,
+    "chromatic metal": 5286,
+    "craw milk": 4,
+    "crystal sulfide": 7,
+    "crystallised heart": 1,
+    "frozen tubers": 24,
+    "hadal core": 9,
+    "hardframe engine": 19,
+    "hex core": 3,
+    "hexaberry": 10,
+    "hypnotic eye": 5,
+    "impluse beans": 21,
+    "inverted mirror": 1,
+    "jade peas": 104,
+    "lava core": 32,
+    "mordite": 7576 + 9999,
+    "pirate transponder": 28,
+    "pulpy roots": 11,
+    "quad servo": 16,
+    "radiant shard": 10,
+    "rancid flesh": 64,
+    "raw steak": 5,
+    "repair kit": 2,
+    "storm crystal": 34,
+    "sweetroot": 55,
+    "walker brain": 5,
 }
 
 # Recipes to ignore (by ID, output ID, or output name)
@@ -177,11 +228,12 @@ def main():
     cat = pulp.LpInteger if args.integer else pulp.LpContinuous
     x = pulp.LpVariable.dicts("x", [r["id"] for r in recipes], lowBound=0, cat=cat)
     b = pulp.LpVariable.dicts("b", [r["id"] for r in recipes], cat=pulp.LpBinary)
-    m = pulp.LpVariable.dicts(
-        "m", [iid for iid in items], lowBound=0, cat=pulp.LpInteger
+    m = pulp.LpVariable.dicts("m", items.keys(), lowBound=0, cat=pulp.LpInteger)
+    p = pulp.LpVariable.dicts(
+        "p", items.keys(), lowBound=0, upBound=len(recipes), cat=pulp.LpContinuous
     )
 
-    if switching_penalty > 0:
+    if switching_penalty > 0 or args.minimize:
         # Track which recipes have nonzero usage counts
         for r in recipes:
             prob += r["time_s"] * x[r["id"]] <= BIG_M_CRAFTING_TIME * b[r["id"]]
@@ -233,7 +285,14 @@ def main():
         for iid, expr in item_expr.items():
             prob += s0.get(iid, 0) + expr >= 0
 
-    prob.solve(pulp.PULP_CBC_CMD(msg=False))
+    if args.minimize:
+        # Break cycles
+        for r in recipes:
+            out_id, _ = r["output"]
+            for iid, _ in r["inputs"]:
+                prob += p[out_id] + len(recipes) * (1 - b[r["id"]]) >= p.get(iid, 0) + 1
+
+    prob.solve(pulp.PULP_CBC_CMD(msg=False, timeLimit=60))
 
     total_time = sum(r["time_s"] * (x[r["id"]].value() or 0) for r in recipes)
     total_profit = sum(
